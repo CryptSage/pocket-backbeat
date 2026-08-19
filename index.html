@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0e12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="favicon.png" type="image/png" sizes="64x64">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Pocket Backbeat</title>
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand"><img src="logo.png" alt="" width="32" height="32">Pocket Backbeat</h1>
+    <div class="status"><span id="syncStatus">Local library</span><span id="pendingBadge" hidden>0 unsynced</span></div>
+  </header>
+
+  <main id="app" class="app" aria-live="polite"></main>
+
+  <!-- A persistent toast keeps failed network actions visible without interrupting play. -->
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

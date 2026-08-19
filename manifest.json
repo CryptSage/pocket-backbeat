@@ -1,0 +1,12 @@
+{
+  "name": "Pocket Backbeat",
+  "short_name": "Backbeat",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0c0e12",
+  "theme_color": "#0c0e12",
+  "icons": [
+    { "src": "logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "favicon.png", "sizes": "64x64", "type": "image/png", "purpose": "any" }
+  ]
+}
