@@ -20,6 +20,7 @@ function doPost(event) {
     var request = JSON.parse(event.postData && event.postData.contents || '{}');
     var result;
     if (request.action === 'updateBpm') result = updateBpm_(request);
+    else if (request.action === 'updateNotes') result = updateNotes_(request);
     else if (request.action === 'savePlaylist') result = savePlaylist_(request);
     else if (request.action === 'deletePlaylist') result = deletePlaylist_(request);
     else throw new Error('Unknown action.');
@@ -35,11 +36,13 @@ function readRows_(sheetName) {
   var values = sheet.getDataRange().getValues();
   if (values.length < 2) return [];
   var headers = values.shift().map(String);
-  return values.filter(function(row) { return row.some(function(value) { return value !== ''; }); }).map(function(row) {
+  var rows = values.filter(function(row) { return row.some(function(value) { return value !== ''; }); }).map(function(row) {
     var object = {};
     headers.forEach(function(header, index) { object[header] = row[index]; });
     return object;
   });
+  // Ignore incomplete song rows so they never reach the app, playlists, or play mode.
+  return sheetName === 'Songs' ? rows.filter(function(row) { return String(row.title == null ? '' : row.title).trim() !== ''; }) : rows;
 }
 
 /** Update only the bpm cell for one immutable song id. */
@@ -56,6 +59,24 @@ function updateBpm_(request) {
     if (String(values[row][idColumn]) === String(request.id)) {
       sheet.getRange(row + 1, bpmColumn + 1).setValue(bpm);
       return { id: request.id, bpm: bpm };
+    }
+  }
+  throw new Error('Song id not found.');
+}
+
+/** Update only the notes cell for one immutable song id. */
+function updateNotes_(request) {
+  if (typeof request.notes !== 'string') throw new Error('Notes must be text.');
+  var sheet = sheet_('Songs');
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(String);
+  var idColumn = headers.indexOf('id');
+  var notesColumn = headers.indexOf('notes');
+  if (idColumn < 0 || notesColumn < 0) throw new Error('Songs needs id and notes columns.');
+  for (var row = 1; row < values.length; row++) {
+    if (String(values[row][idColumn]) === String(request.id)) {
+      sheet.getRange(row + 1, notesColumn + 1).setValue(request.notes);
+      return { id: request.id, notes: request.notes };
     }
   }
   throw new Error('Song id not found.');

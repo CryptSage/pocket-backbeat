@@ -49,9 +49,8 @@ No OAuth on the client. Endpoints:
 ## App features
 
 ### 1. Library view
-- List all songs (title, artist, BPM). Tap a song to edit its BPM (numeric
-  input + / − buttons). Read-only for other fields — those are edited in the
-  sheet directly.
+- List titled songs only (title, artist, BPM). Tap a song to edit its BPM
+  (numeric input + / − buttons) and notes.
 - "Refresh" button: fetch fresh data from the Apps Script, overwrite the
   localStorage cache, show last-synced timestamp.
 
@@ -71,10 +70,11 @@ No OAuth on the client. Endpoints:
 - Next/previous navigation via large tap zones or swipe.
 - Request a screen Wake Lock while in play mode so the phone doesn't sleep;
   re-acquire it on visibilitychange. Release it on exit.
-- BPM can be edited in play mode. The edit applies to the local cache
-  immediately and is added to a pending-sync queue in localStorage. When the
-  app is online (or on next manual refresh), the queue is flushed to the
-  sheet via `updateBpm`. Show a small badge if there are unsynced edits.
+- BPM and notes can be edited in play mode. Changes apply to the local cache
+  immediately and are added to pending-sync queues in localStorage. When the
+  app is online (or on next manual refresh), the queues are flushed to the
+  sheet via `updateBpm` and `updateNotes`. Show a small badge if there are
+  unsynced edits.
 
 ### 4. Metronome (in play mode)
 - Play/stop button on the song screen; plays a click at the song's BPM.

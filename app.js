@@ -4,13 +4,14 @@ const STORAGE = {
   endpoint: 'pocket-backbeat.endpoint',
   syncedAt: 'pocket-backbeat.syncedAt',
   pendingBpm: 'pocket-backbeat.pendingBpm',
+  pendingNotes: 'pocket-backbeat.pendingNotes',
   midiPort: 'pocket-backbeat.midiPort'
 };
 
 // Preserve existing installs that used the previous name; this runs once per key and never overwrites new data.
 const LEGACY_STORAGE = {
   data: 'setlists.data', endpoint: 'setlists.endpoint', syncedAt: 'setlists.syncedAt',
-  pendingBpm: 'setlists.pendingBpm', midiPort: 'setlists.midiPort'
+  pendingBpm: 'setlists.pendingBpm', pendingNotes: 'setlists.pendingNotes', midiPort: 'setlists.midiPort'
 };
 
 /** Move cached data from the original app name without discarding a user's offline library. */
@@ -33,6 +34,7 @@ const pendingBadge = document.querySelector('#pendingBadge');
 const state = {
   data: readJson(STORAGE.data, { songs: [], playlists: [] }),
   pendingBpm: readJson(STORAGE.pendingBpm, []),
+  pendingNotes: readJson(STORAGE.pendingNotes, []),
   view: 'library',
   editingSongId: null,
   playlistName: null,
@@ -41,6 +43,8 @@ const state = {
   play: null,
   wakeLock: null,
   audio: null,
+  clickOutput: null,
+  audioMuted: false,
   schedulerTimer: null,
   scheduledSources: [],
   metronomeRunning: false,
@@ -71,6 +75,16 @@ function songById(id) {
   return state.data.songs.find((song) => String(song.id) === String(id));
 }
 
+/** A blank title is an incomplete Sheet row, not a song that can be displayed or played. */
+function hasTitle(song) {
+  return String(song && song.title != null ? song.title : '').trim() !== '';
+}
+
+/** Keep stale cached blank rows out of every song picker and display. */
+function titledSongs() {
+  return state.data.songs.filter(hasTitle);
+}
+
 /** Return unique playlist names in a predictable order for all picker controls. */
 function playlistNames() {
   return [...new Set(state.data.playlists.map((item) => item.playlist))].sort((a, b) => a.localeCompare(b));
@@ -78,7 +92,7 @@ function playlistNames() {
 
 /** Convert a raw playlist name to its ordered items. */
 function itemsForPlaylist(name) {
-  return state.data.playlists.filter((item) => item.playlist === name).sort((a, b) => Number(a.position) - Number(b.position));
+  return state.data.playlists.filter((item) => item.playlist === name && (item.type !== 'song' || hasTitle(songById(item.ref)))).sort((a, b) => Number(a.position) - Number(b.position));
 }
 
 /** Display a short-lived, non-blocking status message. */
@@ -93,8 +107,9 @@ function showToast(message) {
 function renderStatus() {
   const syncedAt = localStorage.getItem(STORAGE.syncedAt);
   syncStatus.textContent = syncedAt ? `Synced ${new Date(syncedAt).toLocaleString()}` : 'Local library';
-  pendingBadge.hidden = state.pendingBpm.length === 0;
-  pendingBadge.textContent = `${state.pendingBpm.length} unsynced`;
+  const pendingCount = state.pendingBpm.length + state.pendingNotes.length;
+  pendingBadge.hidden = pendingCount === 0;
+  pendingBadge.textContent = `${pendingCount} unsynced`;
 }
 
 /** Build navigation once per normal screen; play mode replaces the entire app area. */
@@ -122,11 +137,11 @@ function bindTabs() {
   }));
 }
 
-/** Render the local song library, with one BPM editor expanded at a time. */
+/** Render the local song library, with one song editor expanded at a time. */
 function renderLibrary() {
-  const songs = [...state.data.songs].sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  const songs = [...titledSongs()].sort((a, b) => String(a.title).localeCompare(String(b.title)));
   app.innerHTML = `${tabs()}<section class="view-header"><h2>Library</h2><button id="refresh" class="primary">Refresh</button></section>
-    <p class="muted">Song names and notes are edited in the Sheet. BPM changes sync when connected.</p>
+    <p class="muted">Edit BPM and notes here. Changes are saved locally and sync when connected.</p>
     <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><span><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
     ${settingsMarkup()}`;
   bindTabs();
@@ -136,26 +151,28 @@ function renderLibrary() {
   bindSettings();
 }
 
-/** Create the compact editable BPM card. */
+/** Create the compact editable song card. */
 function songEditor(song) {
-  return `<section class="card form-card"><strong>${escapeHtml(song.title)}</strong><span class="muted">${escapeHtml(song.artist)}</span><label for="editBpm">BPM</label><div class="bpm-control"><button type="button" data-bpm-step="-1" aria-label="Decrease BPM">−</button><input id="editBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><button type="button" data-bpm-step="1" aria-label="Increase BPM">+</button></div><div class="actions"><button id="saveBpm" class="primary">Save BPM</button><button id="cancelBpm">Cancel</button></div></section>`;
+  return `<section class="card form-card"><strong>${escapeHtml(song.title)}</strong><span class="muted">${escapeHtml(song.artist)}</span><label for="editBpm">BPM</label><div class="bpm-control"><button type="button" data-bpm-step="-1" aria-label="Decrease BPM">−</button><input id="editBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><button type="button" data-bpm-step="1" aria-label="Increase BPM">+</button></div><label for="editNotes">Notes</label><textarea id="editNotes" rows="4" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="saveSong" class="primary">Save changes</button><button id="cancelSong">Cancel</button></div></section>`;
 }
 
-/** Wire the BPM controls, validating before a local-first save. */
+/** Wire song editing controls, validating before a local-first save. */
 function bindSongEditor() {
   const input = app.querySelector('#editBpm');
   if (!input) return;
   app.querySelectorAll('[data-bpm-step]').forEach((button) => button.addEventListener('click', () => {
     input.value = Math.max(1, Math.min(400, Number(input.value || 0) + Number(button.dataset.bpmStep)));
   }));
-  app.querySelector('#cancelBpm').addEventListener('click', () => { state.editingSongId = null; render(); });
-  app.querySelector('#saveBpm').addEventListener('click', () => {
+  app.querySelector('#cancelSong').addEventListener('click', () => { state.editingSongId = null; render(); });
+  app.querySelector('#saveSong').addEventListener('click', () => {
     const bpm = Number(input.value);
     if (!Number.isFinite(bpm) || bpm < 1 || bpm > 400) { showToast('Enter a BPM from 1 to 400.'); return; }
-    updateLocalBpm(state.editingSongId, Math.round(bpm));
+    const song = songById(state.editingSongId);
+    if (Math.round(bpm) !== Number(song.bpm)) updateLocalBpm(song.id, Math.round(bpm));
+    if (app.querySelector('#editNotes').value !== String(song.notes || '')) updateLocalNotes(song.id, app.querySelector('#editNotes').value);
     state.editingSongId = null;
     render();
-    flushPendingBpm();
+    flushPendingChanges();
   });
 }
 
@@ -168,6 +185,18 @@ function updateLocalBpm(id, bpm) {
   state.pendingBpm.push({ id: song.id, bpm });
   saveData();
   localStorage.setItem(STORAGE.pendingBpm, JSON.stringify(state.pendingBpm));
+  renderStatus();
+}
+
+/** Update cached notes and replace (rather than duplicate) their pending sync entry. */
+function updateLocalNotes(id, notes) {
+  const song = songById(id);
+  if (!song) return;
+  song.notes = notes;
+  state.pendingNotes = state.pendingNotes.filter((entry) => String(entry.id) !== String(id));
+  state.pendingNotes.push({ id: song.id, notes });
+  saveData();
+  localStorage.setItem(STORAGE.pendingNotes, JSON.stringify(state.pendingNotes));
   renderStatus();
 }
 
@@ -246,7 +275,7 @@ function openPlaylist(name) {
 
 /** Create the editor markup from its local draft. */
 function playlistEditorMarkup() {
-  const songOptions = state.data.songs.slice().sort((a, b) => String(a.title).localeCompare(String(b.title))).map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.title)} — ${escapeHtml(song.artist)}</option>`).join('');
+  const songOptions = titledSongs().slice().sort((a, b) => String(a.title).localeCompare(String(b.title))).map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.title)} — ${escapeHtml(song.artist)}</option>`).join('');
   return `<section class="card form-card" style="margin-top:12px"><label for="playlistName">Name</label><input id="playlistName" value="${escapeHtml(state.playlistName)}"><label for="addSong">Add a song</label><div class="add-grid"><select id="addSong">${songOptions || '<option>No songs in library</option>'}</select><button id="addSongButton">Add</button></div><label for="headingText">Add a heading</label><div class="add-grid"><input id="headingText" placeholder="e.g. Set 2"><button id="addHeading">Add</button></div>
     <section id="playlistItems">${state.playlistItems.length ? state.playlistItems.map((item, index) => item.type === 'heading' ? `<div class="playlist-item heading"><span>${escapeHtml(item.ref)}</span>${itemControls(index)}</div>` : `<div class="playlist-item"><span><strong>${escapeHtml(songById(item.ref)?.title || `Missing song #${item.ref}`)}</strong><span class="muted">${escapeHtml(songById(item.ref)?.artist || '')}</span></span>${itemControls(index)}</div>`).join('') : '<p class="empty">This playlist is empty.</p>'}</section>
     <div class="editor-actions"><button id="savePlaylist" class="primary">Save playlist</button>${state.playlistOriginalName ? '<button id="deletePlaylist" class="danger">Delete playlist</button>' : ''}</div></section>`;
@@ -320,15 +349,41 @@ async function startPlay(name) {
 function renderPlayMode() {
   const item = state.play.items[state.play.index];
   const song = item.type === 'song' ? songById(item.ref) : null;
-  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div><div class="play-song" id="playContent">${song ? `<button class="play-edit ghost" id="playEdit">Edit BPM</button><h2>${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}` : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
+  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2>${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
   app.querySelector('#exitPlay').addEventListener('click', exitPlay);
   app.querySelector('#previous').addEventListener('click', () => movePlay(-1));
   app.querySelector('#next').addEventListener('click', () => movePlay(1));
   const metro = app.querySelector('#toggleMetro'); if (metro) metro.addEventListener('click', toggleMetronome);
-  const edit = app.querySelector('#playEdit'); if (edit) edit.addEventListener('click', editPlayBpm);
+  const audio = app.querySelector('#toggleAudio'); if (audio) audio.addEventListener('click', toggleAudioMute);
+  const edit = app.querySelector('#playEdit'); if (edit) edit.addEventListener('click', () => { state.editingSongId = String(song.id); renderPlayMode(); });
+  bindPlaySongEditor();
   const content = app.querySelector('#playContent');
-  content.addEventListener('touchstart', (event) => { state.touchStartX = event.changedTouches[0].clientX; }, { passive: true });
-  content.addEventListener('touchend', (event) => { const distance = event.changedTouches[0].clientX - state.touchStartX; if (Math.abs(distance) > 55) movePlay(distance < 0 ? 1 : -1); }, { passive: true });
+  if (!state.editingSongId) {
+    content.addEventListener('touchstart', (event) => { state.touchStartX = event.changedTouches[0].clientX; }, { passive: true });
+    content.addEventListener('touchend', (event) => { const distance = event.changedTouches[0].clientX - state.touchStartX; if (Math.abs(distance) > 55) movePlay(distance < 0 ? 1 : -1); }, { passive: true });
+  }
+}
+
+/** Create a touch-friendly editor without leaving the current song in play mode. */
+function playSongEditor(song) {
+  return `<section class="card form-card play-editor"><strong>${escapeHtml(song.title)}</strong><label for="playEditBpm">BPM</label><input id="playEditBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><label for="playEditNotes">Notes</label><textarea id="playEditNotes" rows="5" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="savePlaySong" class="primary">Save changes</button><button id="cancelPlaySong">Cancel</button></div></section>`;
+}
+
+/** Save the current play-screen song with the same offline queue used by the library. */
+function bindPlaySongEditor() {
+  const input = app.querySelector('#playEditBpm');
+  if (!input) return;
+  app.querySelector('#cancelPlaySong').addEventListener('click', () => { state.editingSongId = null; renderPlayMode(); });
+  app.querySelector('#savePlaySong').addEventListener('click', () => {
+    const bpm = Number(input.value);
+    if (!Number.isFinite(bpm) || bpm < 1 || bpm > 400) { showToast('Enter a BPM from 1 to 400.'); return; }
+    const song = songById(state.editingSongId);
+    if (Math.round(bpm) !== Number(song.bpm)) updateLocalBpm(song.id, Math.round(bpm));
+    if (app.querySelector('#playEditNotes').value !== String(song.notes || '')) updateLocalNotes(song.id, app.querySelector('#playEditNotes').value);
+    state.editingSongId = null;
+    renderPlayMode();
+    flushPendingChanges();
+  });
 }
 
 /** Shift a play position; changing screens always stops the current click cleanly. */
@@ -336,27 +391,16 @@ function movePlay(direction) {
   const next = state.play.index + direction;
   if (next < 0 || next >= state.play.items.length) return;
   stopMetronome();
+  state.editingSongId = null;
   state.play.index = next;
   renderPlayMode();
-}
-
-/** Use a native numeric prompt for a fast, high-contrast play-mode BPM change. */
-function editPlayBpm() {
-  const song = songById(state.play.items[state.play.index].ref);
-  const value = window.prompt('BPM', song.bpm);
-  if (value === null) return;
-  const bpm = Number(value);
-  if (!Number.isFinite(bpm) || bpm < 1 || bpm > 400) { showToast('Enter a BPM from 1 to 400.'); return; }
-  updateLocalBpm(song.id, Math.round(bpm));
-  renderPlayMode();
-  flushPendingBpm();
 }
 
 /** Leave stage mode and release resources that should not outlive it. */
 function exitPlay() {
   stopMetronome();
   if (state.wakeLock) state.wakeLock.release().catch(() => {});
-  state.wakeLock = null; state.play = null; render();
+  state.wakeLock = null; state.play = null; state.editingSongId = null; render();
 }
 
 /** Request a wake lock opportunistically; unsupported browsers remain fully usable. */
@@ -379,12 +423,24 @@ async function toggleMetronome() {
   const AudioCtor = window.AudioContext || window.webkitAudioContext;
   if (!AudioCtor) { showToast('This browser cannot play the metronome.'); return; }
   state.audio = state.audio || new AudioCtor();
+  if (!state.clickOutput) {
+    state.clickOutput = state.audio.createGain();
+    state.clickOutput.connect(state.audio.destination);
+  }
+  state.clickOutput.gain.setValueAtTime(state.audioMuted ? 0 : 1, state.audio.currentTime);
   await state.audio.resume();
   state.metronomeRunning = true;
   state.nextClickAt = state.audio.currentTime + 0.04;
   state.nextMidiAt = state.nextClickAt;
   if (state.midiOutput) state.midiOutput.send([0xFA]);
   scheduler();
+  renderPlayMode();
+}
+
+/** Mute the app's audio click without interrupting a running MIDI clock. */
+function toggleAudioMute() {
+  state.audioMuted = !state.audioMuted;
+  if (state.audio && state.clickOutput) state.clickOutput.gain.setValueAtTime(state.audioMuted ? 0 : 1, state.audio.currentTime);
   renderPlayMode();
 }
 
@@ -434,7 +490,7 @@ function scheduleClick(when) {
   gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
   osc.type = 'square'; osc.frequency.setValueAtTime(620, when);
   overtone.type = 'square'; overtone.frequency.setValueAtTime(940, when);
-  osc.connect(gain); overtone.connect(gain); gain.connect(state.audio.destination);
+  osc.connect(gain); overtone.connect(gain); gain.connect(state.clickOutput);
   state.scheduledSources.push(osc, overtone);
   // Prune ended oscillators, keeping the cancellation list bounded during long sets.
   [osc, overtone].forEach((source) => source.addEventListener('ended', () => {
@@ -467,8 +523,9 @@ async function refreshData() {
     state.data = data; saveData(); localStorage.setItem(STORAGE.syncedAt, new Date().toISOString());
     // Server data is newest except for edits queued locally while offline; those win until flushed.
     state.pendingBpm.forEach((entry) => { const song = songById(entry.id); if (song) song.bpm = entry.bpm; });
+    state.pendingNotes.forEach((entry) => { const song = songById(entry.id); if (song) song.notes = entry.notes; });
     saveData();
-    await flushPendingBpm(); render(); showToast('Library refreshed.');
+    await flushPendingChanges(); render(); showToast('Library refreshed.');
   } catch (error) { showToast(error.message || 'Could not refresh; cached data is still available.'); }
 }
 
@@ -494,8 +551,27 @@ async function flushPendingBpm() {
   } catch (_) { renderStatus(); showToast('BPM change is saved locally and will sync later.'); }
 }
 
+/** Flush queued note edits after BPM so both local-first fields recover from offline use. */
+async function flushPendingNotes() {
+  if (!state.pendingNotes.length || !navigator.onLine) return;
+  try {
+    for (const entry of [...state.pendingNotes]) {
+      await apiPost({ action: 'updateNotes', id: entry.id, notes: entry.notes });
+      state.pendingNotes = state.pendingNotes.filter((queued) => String(queued.id) !== String(entry.id));
+      localStorage.setItem(STORAGE.pendingNotes, JSON.stringify(state.pendingNotes));
+    }
+    renderStatus();
+  } catch (_) { renderStatus(); showToast('Notes change is saved locally and will sync later.'); }
+}
+
+/** Flush every deferred song edit; playlist drafts intentionally remain local until explicitly saved. */
+async function flushPendingChanges() {
+  await flushPendingBpm();
+  await flushPendingNotes();
+}
+
 // Sync deferred edits when connectivity returns; this does nothing to playlist drafts by design.
-window.addEventListener('online', flushPendingBpm);
+window.addEventListener('online', flushPendingChanges);
 
 // Service worker failures are non-fatal because the app remains usable directly in the browser.
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));

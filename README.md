@@ -9,7 +9,7 @@ truth and has no dependencies, build step, or account login in the app.
 
 - Offline song and playlist cache for reliable gig-time use
 - Big, dark, distraction-free play mode with Wake Lock support
-- BPM editing with deferred sync when the device reconnects
+- BPM and notes editing with deferred sync when the device reconnects
 - Playlist headings, song ordering, and whole-playlist saves
 - Web Audio look-ahead metronome scheduler
 - MIDI clock output in Chrome on Windows, when Web MIDI is available
@@ -38,7 +38,7 @@ Put this in row 1 of **Songs**:
 | 1 | The Chain | Fleetwood Mac | 76 | Watch the stop |
 | 2 | Dream On | Aerosmith | 80 |  |
 
-`id` is permanent: do not reuse it after deleting a song. Edit song titles, artists and notes directly in this tab.
+`id` is permanent: do not reuse it after deleting a song. Songs without a title are ignored. Edit song titles and artists directly in this tab; BPM and notes can also be updated in the app.
 
 Put this in row 1 of **Playlists**:
 
@@ -68,6 +68,7 @@ The browser sends JSON as `text/plain`, intentionally avoiding a cross-origin pr
 3. Choose **Deploy from a branch**, select your branch and `/ (root)`, then save.
 4. Open the published URL on your phone or laptop.
 5. In the Library screen’s Settings section, paste the Apps Script `/exec` URL, save it, then press **Refresh**.
+6. Your site is live at https://username.github.io/repository-name/
 
 The app is static: do not put the Apps Script URL into any source file. Each device stores its own URL and cached library in local storage.
 
@@ -77,7 +78,7 @@ The app is static: do not put the Apps Script URL into any source file. Each dev
 2. Tap Share, then **Add to Home Screen**.
 3. Open Pocket Backbeat from the new icon, save the Apps Script URL if needed, and Refresh once before a gig.
 
-The initial visit caches the app shell. Songs and playlists remain available without a connection. BPM changes made offline are queued and sync the next time the app is online.
+The initial visit caches the app shell. Songs and playlists remain available without a connection. BPM and notes changes made offline are queued and sync the next time the app is online.
 
 ## 5. Test MIDI clock on Windows / Chrome
 

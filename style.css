@@ -13,13 +13,14 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { border: 0; border-radius: 10px; min-height: 44px; padding: 0 14px; background: var(--panel-raised); color: var(--text); cursor: pointer; }
 button:active { transform: scale(.98); }
 button.primary { background: var(--accent); color: #171208; font-weight: 700; }
 button.danger { color: var(--danger); }
 button.ghost { padding: 0 8px; background: transparent; color: var(--muted); }
-input, select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: #11141a; color: var(--text); }
+input, select, textarea { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: #11141a; color: var(--text); }
+textarea { resize: vertical; line-height: 1.4; }
 
 .topbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; min-height: 62px; padding: env(safe-area-inset-top) 16px 0; background: rgba(12,14,18,.96); border-bottom: 1px solid var(--line); }
 .topbar h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
@@ -57,6 +58,7 @@ input, select { width: 100%; min-height: 44px; border: 1px solid var(--line); bo
 .play-shell { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-rows: auto 1fr auto; background: #050607; padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
 .play-top, .play-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .play-top { min-height: 58px; }
+.play-controls { display: flex; align-items: center; gap: 8px; }
 .play-progress { color: var(--muted); font-size: 14px; }
 .play-song { display: grid; align-content: center; justify-items: center; min-height: 0; text-align: center; user-select: none; }
 .play-song h2 { max-width: 950px; margin: 0; font-size: clamp(38px, 10vw, 100px); line-height: .95; letter-spacing: -.055em; }
@@ -68,6 +70,8 @@ input, select { width: 100%; min-height: 44px; border: 1px solid var(--line); bo
 .tap-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tap-nav button { min-height: 64px; font-size: 18px; }
 .metro-playing { background: var(--accent) !important; color: #171208 !important; }
+.audio-muted { color: var(--accent); border: 1px solid var(--accent); }
 .play-edit { position: absolute; right: 16px; top: max(72px, env(safe-area-inset-top)); }
+.play-editor { width: min(100%, 580px); text-align: left; }
 
 @media (min-width: 600px) { .app { padding-top: 24px; } .song { padding: 14px; } }
