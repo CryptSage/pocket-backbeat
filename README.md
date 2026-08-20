@@ -12,7 +12,7 @@ truth and has no dependencies, build step, or account login in the app.
 - BPM and notes editing with deferred sync when the device reconnects
 - Playlist headings, song ordering, and whole-playlist saves
 - Web Audio look-ahead metronome scheduler
-- MIDI clock output in Chrome on Windows, when Web MIDI is available
+- MIDI clock output when the browser exposes a Web MIDI output port
 
 ## Project files
 
@@ -80,10 +80,20 @@ The app is static: do not put the Apps Script URL into any source file. Each dev
 
 The initial visit caches the app shell. Songs and playlists remain available without a connection. BPM and notes changes made offline are queued and sync the next time the app is online.
 
-## 5. Test MIDI clock on Windows / Chrome
+## 5. MIDI clock compatibility and setup
+
+MIDI clock requires a browser with [Web MIDI](https://www.w3.org/TR/webmidi/),
+an available MIDI output port, and permission to access it. Use the published
+HTTPS app URL rather than `file:///…` for reliable MIDI access.
+
+- **Best-supported:** Chrome, Edge, or Firefox on Windows, macOS, or Linux with a connected USB-MIDI interface/device.
+- **Android:** Chrome and other Chromium-based browsers can work with a class-compliant USB-MIDI device through USB-OTG. Bluetooth-MIDI support varies by device, Android version, and browser.
+- **Not supported:** Safari on macOS, and iPhone/iPad browsers (including installed PWAs) are not dependable Web MIDI targets.
+
+The app sends standard MIDI Start (`FA`), 24 clock ticks per quarter note (`F8`), and Stop (`FC`) to the selected output.
 
 1. Connect and power your MIDI interface/device before opening Pocket Backbeat.
-2. Open the GitHub Pages URL using recent Chrome over HTTPS.
+2. Open the GitHub Pages URL in a supported browser over HTTPS.
 3. In Library → Settings, click **Enable MIDI**, approve access, and select the desired output.
 4. Start a playlist in Play mode and press **Play click** on a song.
 5. Confirm the receiving device sees MIDI Start (`FA`), 24 clock ticks per quarter note (`F8`), and Stop (`FC`).
