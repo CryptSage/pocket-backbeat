@@ -32,6 +32,7 @@ textarea { resize: vertical; line-height: 1.4; }
 .view-header, .row, .actions, .editor-actions, .bpm-control { display: flex; align-items: center; gap: 10px; }
 .view-header { justify-content: space-between; margin-bottom: 15px; }
 .view-header h2 { margin: 0; font-size: 22px; }
+.song-count { color: var(--muted); font-size: 14px; font-weight: 400; white-space: nowrap; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
 .tabs button.active { background: var(--accent); color: #171208; font-weight: 700; }
 .card, .song, .playlist-item { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }

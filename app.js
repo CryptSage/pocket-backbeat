@@ -32,6 +32,7 @@ const pendingBadge = document.querySelector('#pendingBadge');
 
 // A small in-memory state layer keeps rendering simple while localStorage remains the source of truth.
 const state = {
+  // Show the last successful sheet snapshot immediately; a live refresh replaces it when available.
   data: readJson(STORAGE.data, { songs: [], playlists: [] }),
   pendingBpm: readJson(STORAGE.pendingBpm, []),
   pendingNotes: readJson(STORAGE.pendingNotes, []),
@@ -98,6 +99,11 @@ function songDisplayName(song) {
   return artist ? `${title} - ${artist}` : title;
 }
 
+/** Use natural singular/plural wording for library and playlist totals. */
+function songCountLabel(count) {
+  return `${count} song${count === 1 ? '' : 's'}`;
+}
+
 /** Return unique playlist names in a predictable order for all picker controls. */
 function playlistNames() {
   return [...new Set(state.data.playlists.map((item) => item.playlist))].sort((a, b) => a.localeCompare(b));
@@ -153,7 +159,7 @@ function bindTabs() {
 /** Render the local song library, with one song editor expanded at a time. */
 function renderLibrary() {
   const songs = [...titledSongs()].sort(compareSongsByTitle);
-  app.innerHTML = `${tabs()}<section class="view-header"><h2>Library</h2><button id="refresh" class="primary">Refresh</button></section>
+  app.innerHTML = `${tabs()}<section class="view-header"><h2>Library <span class="song-count">${songCountLabel(songs.length)}</span></h2><button id="refresh" class="primary">Refresh</button></section>
     <p class="muted">Edit BPM and notes here. Changes are saved locally and sync when connected.</p>
     <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><strong>${escapeHtml(songDisplayName(song))}</strong><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
     ${settingsMarkup()}`;
@@ -266,7 +272,8 @@ function renderMidiSettings() {
 function renderPlaylists() {
   const names = playlistNames();
   if (!state.playlistName && names.length) openPlaylist(names[0]);
-  app.innerHTML = `${tabs()}<section class="view-header"><h2>Playlists</h2><button id="newPlaylist" class="primary">New</button></section>
+  const songCount = state.playlistItems.filter((item) => item.type === 'song').length;
+  app.innerHTML = `${tabs()}<section class="view-header"><h2>Playlists${state.playlistName ? ` <span class="song-count">${songCountLabel(songCount)}</span>` : ''}</h2><button id="newPlaylist" class="primary">New</button></section>
     ${names.length ? `<label class="muted" for="playlistSelect">Playlist</label><select id="playlistSelect">${names.map((name) => `<option ${name === state.playlistName ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select>` : ''}
     ${state.playlistName ? playlistEditorMarkup() : '<p class="empty">Create a playlist, then add songs and set headings.</p>'}`;
   bindTabs();
@@ -591,3 +598,5 @@ window.addEventListener('online', flushPendingChanges);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 
 render();
+// The spreadsheet is canonical: load its current contents on every app launch.
+if (navigator.onLine && localStorage.getItem(STORAGE.endpoint)) refreshData();
