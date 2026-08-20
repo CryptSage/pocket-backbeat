@@ -161,7 +161,7 @@ function renderLibrary() {
   const songs = [...titledSongs()].sort(compareSongsByTitle);
   app.innerHTML = `${tabs()}<section class="view-header"><h2>Library <span class="song-count">${songCountLabel(songs.length)}</span></h2><button id="refresh" class="primary">Refresh</button></section>
     <p class="muted">Edit BPM and notes here. Changes are saved locally and sync when connected.</p>
-    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><strong>${escapeHtml(songDisplayName(song))}</strong><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
+    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><span><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
     ${settingsMarkup()}`;
   bindTabs();
   document.querySelector('#refresh').addEventListener('click', refreshData);

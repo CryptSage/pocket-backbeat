@@ -1,5 +1,5 @@
 // Cache only the versioned-in-repo app shell. Data is intentionally kept in localStorage.
-const CACHE_NAME = 'pocket-backbeat-shell-v7';
+const CACHE_NAME = 'pocket-backbeat-shell-v8';
 const APP_SHELL = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './favicon.png'];
 
 // Install the shell in one transaction so an offline launch never gets a partial app.
