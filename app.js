@@ -486,7 +486,8 @@ function scheduleClick(when) {
   const osc = state.audio.createOscillator();
   const overtone = state.audio.createOscillator();
   gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.28, when + 0.002);
+  // Keep the click at full-scale output; listening level is controlled by the device.
+  gain.gain.exponentialRampToValueAtTime(1, when + 0.002);
   gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
   osc.type = 'square'; osc.frequency.setValueAtTime(620, when);
   overtone.type = 'square'; overtone.frequency.setValueAtTime(940, when);
