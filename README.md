@@ -1,6 +1,6 @@
 # Pocket Backbeat
 
-An offline-first Progressive Web App for a drummer to manage a song library,
+An offline-first Progressive Web App for a musician to manage a song library,
 build gig setlists, show high-contrast tempo screens, and run a metronome with
 optional MIDI clock output. It uses a Google Sheet as its editable source of
 truth and has no dependencies, build step, or account login in the app.

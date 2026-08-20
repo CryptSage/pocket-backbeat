@@ -61,7 +61,7 @@ textarea { resize: vertical; line-height: 1.4; }
 .play-controls { display: flex; align-items: center; gap: 8px; }
 .play-progress { color: var(--muted); font-size: 14px; }
 .play-song { display: grid; align-content: center; justify-items: center; min-height: 0; text-align: center; user-select: none; }
-.play-song h2 { max-width: 950px; margin: 0; font-size: clamp(38px, 10vw, 100px); line-height: .95; letter-spacing: -.055em; }
+.play-song .play-title { max-width: 950px; margin: 0; font-size: clamp(38px, 10vw, 100px); line-height: .95; letter-spacing: -.055em; }
 .play-bpm { margin: 25px 0 8px; color: var(--accent); font-size: clamp(96px, 28vw, 250px); font-weight: 800; line-height: .72; letter-spacing: -.07em; font-variant-numeric: tabular-nums; }
 .play-bpm-label { color: var(--muted); font-size: 15px; letter-spacing: .15em; }
 .play-artist { margin-top: 28px; color: #d4d9e1; font-size: clamp(16px, 4vw, 24px); }

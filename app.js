@@ -85,6 +85,19 @@ function titledSongs() {
   return state.data.songs.filter(hasTitle);
 }
 
+/** Keep every song picker and list ordered by the part musicians look for first. */
+function compareSongsByTitle(a, b) {
+  return String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' })
+    || String(a.artist || '').localeCompare(String(b.artist || ''), undefined, { sensitivity: 'base' });
+}
+
+/** Use one title-first label wherever a song is shown as a compact item. */
+function songDisplayName(song) {
+  const title = String(song && song.title != null ? song.title : '').trim();
+  const artist = String(song && song.artist != null ? song.artist : '').trim();
+  return artist ? `${title} - ${artist}` : title;
+}
+
 /** Return unique playlist names in a predictable order for all picker controls. */
 function playlistNames() {
   return [...new Set(state.data.playlists.map((item) => item.playlist))].sort((a, b) => a.localeCompare(b));
@@ -139,10 +152,10 @@ function bindTabs() {
 
 /** Render the local song library, with one song editor expanded at a time. */
 function renderLibrary() {
-  const songs = [...titledSongs()].sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  const songs = [...titledSongs()].sort(compareSongsByTitle);
   app.innerHTML = `${tabs()}<section class="view-header"><h2>Library</h2><button id="refresh" class="primary">Refresh</button></section>
     <p class="muted">Edit BPM and notes here. Changes are saved locally and sync when connected.</p>
-    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><span><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
+    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><strong>${escapeHtml(songDisplayName(song))}</strong><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
     ${settingsMarkup()}`;
   bindTabs();
   document.querySelector('#refresh').addEventListener('click', refreshData);
@@ -153,7 +166,7 @@ function renderLibrary() {
 
 /** Create the compact editable song card. */
 function songEditor(song) {
-  return `<section class="card form-card"><strong>${escapeHtml(song.title)}</strong><span class="muted">${escapeHtml(song.artist)}</span><label for="editBpm">BPM</label><div class="bpm-control"><button type="button" data-bpm-step="-1" aria-label="Decrease BPM">−</button><input id="editBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><button type="button" data-bpm-step="1" aria-label="Increase BPM">+</button></div><label for="editNotes">Notes</label><textarea id="editNotes" rows="4" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="saveSong" class="primary">Save changes</button><button id="cancelSong">Cancel</button></div></section>`;
+  return `<section class="card form-card"><strong>${escapeHtml(songDisplayName(song))}</strong><label for="editBpm">BPM</label><div class="bpm-control"><button type="button" data-bpm-step="-1" aria-label="Decrease BPM">−</button><input id="editBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><button type="button" data-bpm-step="1" aria-label="Increase BPM">+</button></div><label for="editNotes">Notes</label><textarea id="editNotes" rows="4" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="saveSong" class="primary">Save changes</button><button id="cancelSong">Cancel</button></div></section>`;
 }
 
 /** Wire song editing controls, validating before a local-first save. */
@@ -275,9 +288,9 @@ function openPlaylist(name) {
 
 /** Create the editor markup from its local draft. */
 function playlistEditorMarkup() {
-  const songOptions = titledSongs().slice().sort((a, b) => String(a.title).localeCompare(String(b.title))).map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.title)} — ${escapeHtml(song.artist)}</option>`).join('');
+  const songOptions = titledSongs().slice().sort(compareSongsByTitle).map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(songDisplayName(song))}</option>`).join('');
   return `<section class="card form-card" style="margin-top:12px"><label for="playlistName">Name</label><input id="playlistName" value="${escapeHtml(state.playlistName)}"><label for="addSong">Add a song</label><div class="add-grid"><select id="addSong">${songOptions || '<option>No songs in library</option>'}</select><button id="addSongButton">Add</button></div><label for="headingText">Add a heading</label><div class="add-grid"><input id="headingText" placeholder="e.g. Set 2"><button id="addHeading">Add</button></div>
-    <section id="playlistItems">${state.playlistItems.length ? state.playlistItems.map((item, index) => item.type === 'heading' ? `<div class="playlist-item heading"><span>${escapeHtml(item.ref)}</span>${itemControls(index)}</div>` : `<div class="playlist-item"><span><strong>${escapeHtml(songById(item.ref)?.title || `Missing song #${item.ref}`)}</strong><span class="muted">${escapeHtml(songById(item.ref)?.artist || '')}</span></span>${itemControls(index)}</div>`).join('') : '<p class="empty">This playlist is empty.</p>'}</section>
+    <section id="playlistItems">${state.playlistItems.length ? state.playlistItems.map((item, index) => item.type === 'heading' ? `<div class="playlist-item heading"><span>${escapeHtml(item.ref)}</span>${itemControls(index)}</div>` : `<div class="playlist-item"><strong>${escapeHtml(songDisplayName(songById(item.ref)) || `Missing song #${item.ref}`)}</strong>${itemControls(index)}</div>`).join('') : '<p class="empty">This playlist is empty.</p>'}</section>
     <div class="editor-actions"><button id="savePlaylist" class="primary">Save playlist</button>${state.playlistOriginalName ? '<button id="deletePlaylist" class="danger">Delete playlist</button>' : ''}</div></section>`;
 }
 
@@ -349,7 +362,7 @@ async function startPlay(name) {
 function renderPlayMode() {
   const item = state.play.items[state.play.index];
   const song = item.type === 'song' ? songById(item.ref) : null;
-  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2>${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
+  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2 class="play-title">${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
   app.querySelector('#exitPlay').addEventListener('click', exitPlay);
   app.querySelector('#previous').addEventListener('click', () => movePlay(-1));
   app.querySelector('#next').addEventListener('click', () => movePlay(1));
@@ -366,7 +379,7 @@ function renderPlayMode() {
 
 /** Create a touch-friendly editor without leaving the current song in play mode. */
 function playSongEditor(song) {
-  return `<section class="card form-card play-editor"><strong>${escapeHtml(song.title)}</strong><label for="playEditBpm">BPM</label><input id="playEditBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><label for="playEditNotes">Notes</label><textarea id="playEditNotes" rows="5" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="savePlaySong" class="primary">Save changes</button><button id="cancelPlaySong">Cancel</button></div></section>`;
+  return `<section class="card form-card play-editor"><strong>${escapeHtml(songDisplayName(song))}</strong><label for="playEditBpm">BPM</label><input id="playEditBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><label for="playEditNotes">Notes</label><textarea id="playEditNotes" rows="5" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="savePlaySong" class="primary">Save changes</button><button id="cancelPlaySong">Cancel</button></div></section>`;
 }
 
 /** Save the current play-screen song with the same offline queue used by the library. */
