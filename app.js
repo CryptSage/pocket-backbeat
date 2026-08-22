@@ -5,13 +5,14 @@ const STORAGE = {
   syncedAt: 'pocket-backbeat.syncedAt',
   pendingBpm: 'pocket-backbeat.pendingBpm',
   pendingNotes: 'pocket-backbeat.pendingNotes',
-  midiPort: 'pocket-backbeat.midiPort'
+  midiPort: 'pocket-backbeat.midiPort',
+  midiEnabled: 'pocket-backbeat.midiEnabled'
 };
 
 // Preserve existing installs that used the previous name; this runs once per key and never overwrites new data.
 const LEGACY_STORAGE = {
   data: 'setlists.data', endpoint: 'setlists.endpoint', syncedAt: 'setlists.syncedAt',
-  pendingBpm: 'setlists.pendingBpm', pendingNotes: 'setlists.pendingNotes', midiPort: 'setlists.midiPort'
+  pendingBpm: 'setlists.pendingBpm', pendingNotes: 'setlists.pendingNotes', midiPort: 'setlists.midiPort', midiEnabled: 'setlists.midiEnabled'
 };
 
 /** Move cached data from the original app name without discarding a user's offline library. */
@@ -49,6 +50,7 @@ const state = {
   schedulerTimer: null,
   scheduledSources: [],
   metronomeRunning: false,
+  metronomeOutputActive: false,
   nextClickAt: 0,
   nextMidiAt: 0,
   midiAccess: null,
@@ -246,6 +248,9 @@ async function enableMidi() {
     state.midiAccess = await navigator.requestMIDIAccess();
     state.midiAccess.onstatechange = () => { selectMidiOutput(); renderMidiSettings(); };
     selectMidiOutput();
+    localStorage.setItem(STORAGE.midiEnabled, 'true');
+    // MIDI clock is normally sent to a device that makes its own sound, so start with the local click silent.
+    state.audioMuted = true;
     renderMidiSettings();
   } catch (_) { showToast('MIDI access was not granted.'); }
 }
@@ -256,6 +261,7 @@ function selectMidiOutput() {
   const ports = [...state.midiAccess.outputs.values()];
   const savedId = localStorage.getItem(STORAGE.midiPort);
   state.midiOutput = ports.find((port) => port.id === savedId) || ports[0] || null;
+  if (state.midiOutput) localStorage.setItem(STORAGE.midiPort, state.midiOutput.id);
 }
 
 /** Show a port picker only on browsers that both expose and have enabled Web MIDI. */
@@ -266,6 +272,20 @@ function renderMidiSettings() {
   container.innerHTML = ports.length ? `<label for="midiPort">MIDI clock output</label><select id="midiPort">${ports.map((port) => `<option value="${escapeHtml(port.id)}" ${state.midiOutput && port.id === state.midiOutput.id ? 'selected' : ''}>${escapeHtml(port.name || 'Unnamed output')}</option>`).join('')}</select>` : '<p class="settings-note">No MIDI outputs found.</p>';
   const select = container.querySelector('#midiPort');
   if (select) select.addEventListener('change', () => { localStorage.setItem(STORAGE.midiPort, select.value); selectMidiOutput(); });
+}
+
+/** Reconnect a previously authorized MIDI output after a page refresh without prompting first-time users. */
+async function restoreMidi() {
+  if (!('requestMIDIAccess' in navigator) || !localStorage.getItem(STORAGE.midiEnabled)) return;
+  try {
+    state.midiAccess = await navigator.requestMIDIAccess();
+    state.midiAccess.onstatechange = () => { selectMidiOutput(); renderMidiSettings(); };
+    selectMidiOutput();
+    state.audioMuted = true;
+    renderMidiSettings();
+  } catch (_) {
+    // Permission may have been revoked since the last use; keep the app usable without MIDI.
+  }
 }
 
 /** Render playlist selection and the editing surface when one is active. */
@@ -369,7 +389,7 @@ async function startPlay(name) {
 function renderPlayMode() {
   const item = state.play.items[state.play.index];
   const song = item.type === 'song' ? songById(item.ref) : null;
-  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2 class="play-title">${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
+  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song || state.metronomeRunning ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2 class="play-title">${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
   app.querySelector('#exitPlay').addEventListener('click', exitPlay);
   app.querySelector('#previous').addEventListener('click', () => movePlay(-1));
   app.querySelector('#next').addEventListener('click', () => movePlay(1));
@@ -406,13 +426,13 @@ function bindPlaySongEditor() {
   });
 }
 
-/** Shift a play position; changing screens always stops the current click cleanly. */
+/** Shift a play position while preserving whether the click was already running. */
 function movePlay(direction) {
   const next = state.play.index + direction;
   if (next < 0 || next >= state.play.items.length) return;
-  stopMetronome();
   state.editingSongId = null;
   state.play.index = next;
+  syncMetronomeOutput();
   renderPlayMode();
 }
 
@@ -437,6 +457,19 @@ async function requestWakeLock() {
 /** Reacquire the lock after iOS/browser visibility transitions while stage mode remains active. */
 document.addEventListener('visibilitychange', () => { if (state.play && document.visibilityState === 'visible' && !state.wakeLock) requestWakeLock(); });
 
+/** Keyboard shortcuts keep the play screen usable from a music stand without affecting song editing. */
+document.addEventListener('keydown', (event) => {
+  const isEditing = event.target instanceof Element && event.target.matches('input, textarea, select, [contenteditable="true"]');
+  const item = state.play && state.play.items[state.play.index];
+  if (event.repeat || isEditing || !item) return;
+  if (event.code === 'Space' && (item.type === 'song' || state.metronomeRunning)) {
+    event.preventDefault();
+    toggleMetronome();
+  }
+  if (event.key === 'ArrowLeft') { event.preventDefault(); movePlay(-1); }
+  if (event.key === 'ArrowRight') { event.preventDefault(); movePlay(1); }
+});
+
 /** Create/resume Web Audio only in response to a tap, as iOS Safari requires. */
 async function toggleMetronome() {
   if (state.metronomeRunning) { stopMetronome(); renderPlayMode(); return; }
@@ -450,10 +483,7 @@ async function toggleMetronome() {
   state.clickOutput.gain.setValueAtTime(state.audioMuted ? 0 : 1, state.audio.currentTime);
   await state.audio.resume();
   state.metronomeRunning = true;
-  state.nextClickAt = state.audio.currentTime + 0.04;
-  state.nextMidiAt = state.nextClickAt;
-  if (state.midiOutput) state.midiOutput.send([0xFA]);
-  scheduler();
+  syncMetronomeOutput();
   renderPlayMode();
 }
 
@@ -468,18 +498,49 @@ function toggleAudioMute() {
 function stopMetronome() {
   if (!state.metronomeRunning) return;
   state.metronomeRunning = false;
+  muteMetronomeOutput();
+}
+
+/** A song needs a positive numeric BPM before it can drive audio or MIDI clock. */
+function hasCurrentPlayTempo() {
+  const item = state.play && state.play.items[state.play.index];
+  const bpm = Number(item && item.type === 'song' && songById(item.ref)?.bpm);
+  return Number.isFinite(bpm) && bpm > 0;
+}
+
+/** Start scheduling from a fresh beat when the active item has a usable tempo. */
+function startMetronomeOutput() {
+  if (!state.metronomeRunning || !state.audio || !hasCurrentPlayTempo() || state.metronomeOutputActive) return;
+  state.nextClickAt = state.audio.currentTime + 0.04;
+  state.nextMidiAt = state.nextClickAt;
+  state.metronomeOutputActive = true;
+  if (state.midiOutput) state.midiOutput.send([0xFA]);
+  scheduler();
+}
+
+/** Silence a tempo-less item while keeping the click armed to resume on the next playable song. */
+function muteMetronomeOutput() {
+  if (!state.metronomeOutputActive) return;
+  state.metronomeOutputActive = false;
   clearTimeout(state.schedulerTimer);
   state.schedulerTimer = null;
-  // Cancel the small look-ahead queue too, so changing songs never leaks one last click.
+  // Cancel the small look-ahead queue too, so changing to a heading never leaks one last click.
   state.scheduledSources.forEach((source) => { try { source.stop(state.audio.currentTime); } catch (_) {} });
   state.scheduledSources = [];
   if (state.midiOutput) state.midiOutput.send([0xFC]);
 }
 
+/** Keep the click armed across navigation, while only emitting output for tempo-bearing songs. */
+function syncMetronomeOutput() {
+  if (!state.metronomeRunning) return;
+  if (hasCurrentPlayTempo()) startMetronomeOutput();
+  else muteMetronomeOutput();
+}
+
 /** Return the live BPM so an in-place edit takes effect on the next scheduled beat. */
 function currentPlayBpm() {
   const item = state.play && state.play.items[state.play.index];
-  return Number(item && item.type === 'song' && songById(item.ref)?.bpm) || 120;
+  return Number(item && item.type === 'song' && songById(item.ref)?.bpm);
 }
 
 /**
@@ -487,7 +548,7 @@ function currentPlayBpm() {
  * They never make sound themselves, avoiding timer jitter in the audible clock.
  */
 function scheduler() {
-  if (!state.metronomeRunning || !state.audio) return;
+  if (!state.metronomeRunning || !state.metronomeOutputActive || !state.audio) return;
   const horizon = state.audio.currentTime + 0.16;
   while (state.nextClickAt < horizon) {
     scheduleClick(state.nextClickAt);
@@ -598,5 +659,6 @@ window.addEventListener('online', flushPendingChanges);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 
 render();
+restoreMidi();
 // The spreadsheet is canonical: load its current contents on every app launch.
 if (navigator.onLine && localStorage.getItem(STORAGE.endpoint)) refreshData();
