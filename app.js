@@ -30,6 +30,7 @@ const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
 const syncStatus = document.querySelector('#syncStatus');
 const pendingBadge = document.querySelector('#pendingBadge');
+const MIDI_SCHEDULE_AHEAD_MS = 250;
 
 // A small in-memory state layer keeps rendering simple while localStorage remains the source of truth.
 const state = {
@@ -512,7 +513,8 @@ function hasCurrentPlayTempo() {
 function startMetronomeOutput() {
   if (!state.metronomeRunning || !state.audio || !hasCurrentPlayTempo() || state.metronomeOutputActive) return;
   state.nextClickAt = state.audio.currentTime + 0.04;
-  state.nextMidiAt = state.nextClickAt;
+  // MIDI timestamps use the performance clock, independently of Web Audio's render-block clock.
+  state.nextMidiAt = performance.now() + 40;
   state.metronomeOutputActive = true;
   if (state.midiOutput) state.midiOutput.send([0xFA]);
   scheduler();
@@ -527,7 +529,11 @@ function muteMetronomeOutput() {
   // Cancel the small look-ahead queue too, so changing to a heading never leaks one last click.
   state.scheduledSources.forEach((source) => { try { source.stop(state.audio.currentTime); } catch (_) {} });
   state.scheduledSources = [];
-  if (state.midiOutput) state.midiOutput.send([0xFC]);
+  if (state.midiOutput) {
+    // Drop timestamped clock ticks that have not left the browser before stopping transport.
+    state.midiOutput.clear();
+    state.midiOutput.send([0xFC]);
+  }
 }
 
 /** Keep the click armed across navigation, while only emitting output for tempo-bearing songs. */
@@ -549,14 +555,15 @@ function currentPlayBpm() {
  */
 function scheduler() {
   if (!state.metronomeRunning || !state.metronomeOutputActive || !state.audio) return;
-  const horizon = state.audio.currentTime + 0.16;
-  while (state.nextClickAt < horizon) {
+  const audioHorizon = state.audio.currentTime + 0.16;
+  while (state.nextClickAt < audioHorizon) {
     scheduleClick(state.nextClickAt);
     state.nextClickAt += 60 / currentPlayBpm();
   }
-  while (state.nextMidiAt < horizon) {
+  const midiHorizon = performance.now() + MIDI_SCHEDULE_AHEAD_MS;
+  while (state.nextMidiAt < midiHorizon) {
     scheduleMidiClock(state.nextMidiAt);
-    state.nextMidiAt += 60 / currentPlayBpm() / 24;
+    state.nextMidiAt += 60000 / currentPlayBpm() / 24;
   }
   state.schedulerTimer = setTimeout(scheduler, 25);
 }
@@ -581,11 +588,10 @@ function scheduleClick(when) {
   osc.start(when); overtone.start(when); osc.stop(when + 0.065); overtone.stop(when + 0.065);
 }
 
-/** Translate AudioContext time into MIDI's performance-time timestamps for a common stable schedule. */
-function scheduleMidiClock(audioWhen) {
+/** Send MIDI clock directly on its native performance-time timeline. */
+function scheduleMidiClock(performanceWhen) {
   if (!state.midiOutput) return;
-  const timestamp = performance.now() + Math.max(0, audioWhen - state.audio.currentTime) * 1000;
-  state.midiOutput.send([0xF8], timestamp);
+  state.midiOutput.send([0xF8], performanceWhen);
 }
 
 /** Require a configured endpoint for all remote activity, keeping the repository URL-free. */
