@@ -22,6 +22,8 @@ truth and has no dependencies, build step, or account login in the app.
 | `logo.png`, `favicon.png` | Pocket Backbeat logo and browser/PWA icon |
 | `sw.js`, `manifest.json` | Offline PWA shell and install metadata |
 | `Code.gs` | Google Apps Script API bound to the Sheet |
+| `AI_AGENT_SETLIST_IMPORT_PROMPT.md` | Instructions for the optional AI-agent setlist-import skill |
+| `.env.example` | Non-secret example configuration for that skill |
 
 ## Setup
 
@@ -71,6 +73,121 @@ The browser sends JSON as `text/plain`, intentionally avoiding a cross-origin pr
 6. Your site is live at https://username.github.io/repository-name/
 
 The app is static: do not put the Apps Script URL into any source file. Each device stores its own URL and cached library in local storage.
+
+## Optional: AI-agent setlist-import skill
+
+The included AI-agent prompt turns a photographed or typed setlist into a Pocket
+Backbeat playlist. It checks each entry against the existing `Songs` tab,
+researches likely title/artist/BPM data for missing songs, asks for approval
+before adding anything, and then creates a new ordered playlist. It preserves
+the sheet schema and uses immutable song IDs.
+
+This is separate from the PWA's Apps Script URL. The PWA API can read songs and
+save playlists, but it cannot create new song rows. The agent therefore
+connects directly to the Google Sheet with a Google service account.
+
+### 1. Install the prompt or skill in your AI agent
+
+Use your agent platform's documented custom prompt or skill location. Put the
+contents of [`AI_AGENT_SETLIST_IMPORT_PROMPT.md`](AI_AGENT_SETLIST_IMPORT_PROMPT.md)
+in the platform's equivalent of:
+
+```text
+<agent-project>/skills/pocket-backbeat-setlists/SKILL.md
+```
+
+If the platform uses a single system-prompt file rather than skill folders,
+use this prompt there instead. Restart or reload the agent after installing it
+and confirm that it discovers the custom prompt/skill. Follow any
+platform-specific skill registry or lock-file requirement only when its
+documentation requires one.
+
+### 2. Create Google Sheets credentials
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create
+   or select a project, such as `pocket-backbeat-agent`.
+2. In **APIs & Services → Library**, enable **Google Sheets API**.
+3. In **IAM & Admin → Service Accounts**, create a service account named
+   `pocket-backbeat-agent`. No Google Cloud IAM role is needed for access to
+   one existing spreadsheet.
+4. Open that service account, copy its email address, then go to **Keys → Add
+   key → Create new key → JSON**. Download the JSON key exactly once.
+5. Open the Pocket Backbeat spreadsheet, click **Share**, add the service
+   account email as an **Editor**, and save. Google Sheet sharing is what gives
+   the service account access; a Cloud IAM role alone does not do that.
+6. Copy the spreadsheet ID from its URL. In
+   `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`, it is the text
+   between `/d/` and `/edit`.
+
+The service account only needs direct access to this Sheet. Domain-wide
+delegation and Google Workspace administrator permissions are not needed.
+See Google's [credential guide](https://developers.google.com/workspace/guides/create-credentials)
+for current console details.
+
+### 3. Store the key and configure the agent runtime
+
+The JSON key is a secret. Store it outside the Git repository if possible, or
+in the ignored `secrets` directory shown below. Never paste its contents into
+chat, commit it, or put the JSON itself in `.env`.
+
+```bash
+cd <agent-project>
+mkdir -p secrets
+chmod 700 secrets
+install -m 600 /path/to/downloaded-service-account-key.json \
+  secrets/pocket-backbeat-google.json
+```
+
+Create `<agent-project>/.env` with these values (see [`.env.example`](.env.example)).
+The runtime must load this file before it starts the agent.
+
+```dotenv
+GOOGLE_SHEETS_SPREADSHEET_ID=your-spreadsheet-id
+GOOGLE_SERVICE_ACCOUNT_JSON_PATH=/path/visible/to/the/agent/pocket-backbeat-google.json
+POCKET_BACKBEAT_SONGS_SHEET=Songs
+POCKET_BACKBEAT_PLAYLISTS_SHEET=Playlists
+```
+
+Add these entries to `<agent-project>/.gitignore`:
+
+```gitignore
+.env
+secrets/
+```
+
+If the agent runs in Docker Compose, load the environment file and mount the
+key read-only. Replace `ai-agent` with the actual service name:
+
+```yaml
+services:
+  ai-agent:
+    env_file:
+      - .env
+    volumes:
+      - ./secrets/pocket-backbeat-google.json:/run/secrets/pocket-backbeat-google.json:ro
+```
+
+For that Docker configuration, set
+`GOOGLE_SERVICE_ACCOUNT_JSON_PATH=/run/secrets/pocket-backbeat-google.json`.
+For a non-containerized runtime, set it to the protected host path instead.
+Restart the agent after making these changes.
+
+### 4. Use it
+
+Ask your AI agent to use the Pocket Backbeat setlist-import skill, then attach a setlist
+photo or paste/type the songs. The agent will:
+
+1. Transcribe the entries and preserve their order and headings.
+2. Match them against the `Songs` tab.
+3. Search only missing or ambiguous entries for a likely title, artist, and
+   starting BPM, clearly identifying uncertain results.
+4. Present all new Song rows and the proposed playlist order for approval.
+5. Append approved songs with new, never-reused IDs.
+6. Ask for a playlist name, request final confirmation, and append the ordered
+   rows to `Playlists`.
+
+It never overwrites an existing playlist, silently substitutes a cover or live
+version, or writes to the Sheet before explicit approval.
 
 ## 4. Install on iPhone
 

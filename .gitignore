@@ -1,1 +1,3 @@
 .env
+# Downloaded Google service-account key for the optional AI-agent importer.
+pocket-backbeat-*.json
