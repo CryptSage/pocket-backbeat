@@ -19,6 +19,7 @@ button:active { transform: scale(.98); }
 button.primary { background: var(--accent); color: #171208; font-weight: 700; }
 button.danger { color: var(--danger); }
 button.ghost { padding: 0 8px; background: transparent; color: var(--muted); }
+button.midi-enabled { background: #284535; color: #c9f7d7; box-shadow: inset 0 0 0 1px #5abb7a; font-weight: 700; }
 input, select, textarea { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: #11141a; color: var(--text); }
 textarea { resize: vertical; line-height: 1.4; }
 
@@ -52,7 +53,9 @@ textarea { resize: vertical; line-height: 1.4; }
 .add-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
 .bpm-control button { min-width: 46px; padding: 0; font-size: 20px; }
 .bpm-control input { width: 100px; text-align: center; font-size: 20px; font-weight: 700; }
+.settings-card { margin: 0 0 24px; }
 .settings-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.midi-status { color: #c9f7d7; }
 .toast { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 10; max-width: min(390px, calc(100vw - 32px)); padding: 12px 14px; border-radius: 10px; background: #2a313d; box-shadow: 0 8px 24px #0009; }
 
 /* Play mode deliberately fills the viewport with just the next musical decision. */
@@ -61,7 +64,10 @@ textarea { resize: vertical; line-height: 1.4; }
 .play-top { min-height: 58px; }
 .play-controls { display: flex; align-items: center; gap: 8px; }
 .play-progress { color: var(--muted); font-size: 14px; }
-.play-song { display: grid; align-content: center; justify-items: center; min-height: 0; text-align: center; user-select: none; }
+.play-context { display: grid; min-width: 0; gap: 2px; text-align: center; color: var(--muted); font-size: 13px; }
+.play-context span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-stage { min-height: 0; }
+.play-song { display: grid; align-content: center; justify-items: center; min-height: 0; height: 100%; text-align: center; user-select: none; }
 .play-song .play-title { max-width: 950px; margin: 0; font-size: clamp(38px, 10vw, 100px); line-height: .95; letter-spacing: -.055em; }
 .play-bpm { margin: 25px 0 8px; color: var(--accent); font-size: clamp(96px, 28vw, 250px); font-weight: 800; line-height: .72; letter-spacing: -.07em; font-variant-numeric: tabular-nums; }
 .play-bpm-label { color: var(--muted); font-size: 15px; letter-spacing: .15em; }
@@ -69,10 +75,28 @@ textarea { resize: vertical; line-height: 1.4; }
 .play-notes { max-width: 650px; margin: 10px 0 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
 .play-heading { width: 100%; padding: 24px 0; border-block: 2px solid var(--accent); color: var(--accent); font-size: clamp(34px, 9vw, 78px); font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .tap-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.tap-nav button { min-height: 64px; font-size: 18px; }
+.tap-nav button { display: grid; min-width: 0; min-height: 64px; gap: 3px; padding: 8px 12px; text-align: left; }
+.tap-nav button:last-child { text-align: right; }
+.tap-nav span { color: var(--muted); font-size: 12px; }
+.tap-nav strong { overflow: hidden; color: var(--text); font-size: clamp(13px, 2.5vw, 16px); text-overflow: ellipsis; white-space: nowrap; }
+.play-setlist { display: none; }
 .metro-playing { background: var(--accent) !important; color: #171208 !important; }
 .audio-muted { color: var(--accent); border: 1px solid var(--accent); }
 .play-edit { position: absolute; right: 16px; top: max(72px, env(safe-area-inset-top)); }
 .play-editor { width: min(100%, 580px); text-align: left; }
 
 @media (min-width: 600px) { .app { padding-top: 24px; } .song { padding: 14px; } }
+
+@media (min-width: 850px), (min-width: 650px) and (orientation: landscape) {
+  .play-stage { display: grid; grid-template-columns: minmax(190px, 260px) minmax(0, 1fr); gap: 22px; }
+  .play-setlist { display: block; min-height: 0; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .play-setlist-title { display: grid; gap: 3px; padding: 0 4px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .play-setlist-title span:last-child { overflow: hidden; color: var(--text); font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .play-setlist ol { display: grid; gap: 3px; margin: 10px 0 0; padding: 0; list-style: none; }
+  .play-setlist button { display: grid; grid-template-columns: 24px minmax(0, 1fr); width: 100%; min-height: 36px; padding: 6px 7px; border-radius: 7px; background: transparent; text-align: left; }
+  .play-setlist button span { color: var(--muted); font-size: 12px; }
+  .play-setlist button .play-setlist-song { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .play-setlist button.active { background: var(--accent); color: #171208; font-weight: 700; }
+  .play-setlist button.active span { color: #5f4a16; }
+  .play-setlist-heading { margin-top: 8px; padding: 8px 7px 2px; color: #ffe19a; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+}

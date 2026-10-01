@@ -6,13 +6,14 @@ const STORAGE = {
   pendingBpm: 'pocket-backbeat.pendingBpm',
   pendingNotes: 'pocket-backbeat.pendingNotes',
   midiPort: 'pocket-backbeat.midiPort',
-  midiEnabled: 'pocket-backbeat.midiEnabled'
+  midiEnabled: 'pocket-backbeat.midiEnabled',
+  lastPlayPlaylist: 'pocket-backbeat.lastPlayPlaylist'
 };
 
 // Preserve existing installs that used the previous name; this runs once per key and never overwrites new data.
 const LEGACY_STORAGE = {
   data: 'setlists.data', endpoint: 'setlists.endpoint', syncedAt: 'setlists.syncedAt',
-  pendingBpm: 'setlists.pendingBpm', pendingNotes: 'setlists.pendingNotes', midiPort: 'setlists.midiPort', midiEnabled: 'setlists.midiEnabled'
+  pendingBpm: 'setlists.pendingBpm', pendingNotes: 'setlists.pendingNotes', midiPort: 'setlists.midiPort', midiEnabled: 'setlists.midiEnabled', lastPlayPlaylist: 'setlists.lastPlayPlaylist'
 };
 
 /** Move cached data from the original app name without discarding a user's offline library. */
@@ -54,6 +55,8 @@ const state = {
   metronomeOutputActive: false,
   nextClickAt: 0,
   nextMidiAt: 0,
+  schedulerGeneration: 0,
+  midiStopTimer: null,
   midiAccess: null,
   midiOutput: null,
   touchStartX: null
@@ -164,15 +167,14 @@ function renderLibrary() {
   const songs = [...titledSongs()].sort(compareSongsByTitle);
   app.innerHTML = `${tabs()}<section class="view-header"><h2>Library <span class="song-count">${songCountLabel(songs.length)}</span></h2><button id="refresh" class="primary">Refresh</button></section>
     <p class="muted">Edit BPM and notes here. Changes are saved locally and sync when connected.</p>
-    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><span><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>
-    ${settingsMarkup()}`;
+    ${settingsMarkup()}
+    <section>${songs.length ? songs.map((song) => state.editingSongId === String(song.id) ? songEditor(song) : `<button class="song" data-edit-song="${escapeHtml(song.id)}"><span><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="bpm">${escapeHtml(song.bpm)}</span></button>`).join('') : '<p class="empty">No songs cached yet. Add your Apps Script URL in Settings, then refresh.</p>'}</section>`;
   bindTabs();
   document.querySelector('#refresh').addEventListener('click', refreshData);
   app.querySelectorAll('[data-edit-song]').forEach((button) => button.addEventListener('click', () => { state.editingSongId = button.dataset.editSong; render(); }));
   bindSongEditor();
   bindSettings();
 }
-
 /** Create the compact editable song card. */
 function songEditor(song) {
   return `<section class="card form-card"><strong>${escapeHtml(songDisplayName(song))}</strong><label for="editBpm">BPM</label><div class="bpm-control"><button type="button" data-bpm-step="-1" aria-label="Decrease BPM">−</button><input id="editBpm" type="number" inputmode="numeric" min="1" max="400" value="${escapeHtml(song.bpm)}"><button type="button" data-bpm-step="1" aria-label="Increase BPM">+</button></div><label for="editNotes">Notes</label><textarea id="editNotes" rows="4" placeholder="Add performance notes">${escapeHtml(song.notes)}</textarea><div class="actions"><button id="saveSong" class="primary">Save changes</button><button id="cancelSong">Cancel</button></div></section>`;
@@ -222,10 +224,11 @@ function updateLocalNotes(id, notes) {
   renderStatus();
 }
 
-/** The settings are intentionally at the bottom: most use is offline and needs no configuration screen. */
+/** Keep configuration visible before the library, so a new device can be set up without scrolling. */
 function settingsMarkup() {
   const endpoint = localStorage.getItem(STORAGE.endpoint) || '';
-  return `<section class="card form-card" style="margin-top:24px"><strong>Settings</strong><label for="endpoint">Apps Script web-app URL</label><input id="endpoint" type="url" inputmode="url" placeholder="https://script.google.com/.../exec" value="${escapeHtml(endpoint)}"><div class="actions"><button id="saveSettings">Save URL</button>${'requestMIDIAccess' in navigator ? '<button id="enableMidi">Enable MIDI</button>' : ''}</div><div id="midiSettings"></div><p class="settings-note">The URL stays only on this device. Use Refresh after saving it.</p></section>`;
+  const midiEnabled = localStorage.getItem(STORAGE.midiEnabled) === 'true';
+  return `<section class="card form-card settings-card"><strong>Settings</strong><label for="endpoint">Apps Script web-app URL</label><input id="endpoint" type="url" inputmode="url" placeholder="https://script.google.com/.../exec" value="${escapeHtml(endpoint)}"><div class="actions"><button id="saveSettings">Save URL</button>${'requestMIDIAccess' in navigator ? `<button id="enableMidi" class="${midiEnabled ? 'midi-enabled' : ''}" aria-pressed="${midiEnabled}">${midiEnabled ? 'MIDI enabled' : 'Enable MIDI'}</button>` : ''}</div><div id="midiSettings"></div><p class="settings-note">The URL stays only on this device. Use Refresh after saving it.</p></section>`;
 }
 
 /** Bind configuration controls only when the settings card appears. */
@@ -261,18 +264,36 @@ function selectMidiOutput() {
   if (!state.midiAccess) return;
   const ports = [...state.midiAccess.outputs.values()];
   const savedId = localStorage.getItem(STORAGE.midiPort);
-  state.midiOutput = ports.find((port) => port.id === savedId) || ports[0] || null;
+  const connected = ports.filter((port) => port.state !== 'disconnected');
+  state.midiOutput = connected.find((port) => port.id === savedId) || connected[0] || ports.find((port) => port.id === savedId) || null;
   if (state.midiOutput) localStorage.setItem(STORAGE.midiPort, state.midiOutput.id);
 }
 
 /** Show a port picker only on browsers that both expose and have enabled Web MIDI. */
 function renderMidiSettings() {
   const container = app.querySelector('#midiSettings');
-  if (!container || !state.midiAccess) return;
+  const button = app.querySelector('#enableMidi');
+  const enabled = localStorage.getItem(STORAGE.midiEnabled) === 'true';
+  if (button) {
+    button.classList.toggle('midi-enabled', enabled);
+    button.setAttribute('aria-pressed', String(enabled));
+    button.textContent = enabled ? 'MIDI enabled' : 'Enable MIDI';
+  }
+  if (!container) return;
+  if (!state.midiAccess) {
+    container.innerHTML = enabled ? '<p class="settings-note midi-status">MIDI is enabled. Checking for a connected output…</p>' : '';
+    return;
+  }
   const ports = [...state.midiAccess.outputs.values()];
-  container.innerHTML = ports.length ? `<label for="midiPort">MIDI clock output</label><select id="midiPort">${ports.map((port) => `<option value="${escapeHtml(port.id)}" ${state.midiOutput && port.id === state.midiOutput.id ? 'selected' : ''}>${escapeHtml(port.name || 'Unnamed output')}</option>`).join('')}</select>` : '<p class="settings-note">No MIDI outputs found.</p>';
+  const output = state.midiOutput;
+  const status = output
+    ? output.state === 'disconnected'
+      ? `MIDI is enabled, but ${escapeHtml(output.name || 'the selected output')} is disconnected.`
+      : `MIDI is enabled and ready: ${escapeHtml(output.name || 'Unnamed output')}.`
+    : 'MIDI is enabled, but no output is connected.';
+  container.innerHTML = `${ports.length ? `<label for="midiPort">MIDI clock output</label><select id="midiPort">${ports.map((port) => `<option value="${escapeHtml(port.id)}" ${output && port.id === output.id ? 'selected' : ''}>${escapeHtml(port.name || 'Unnamed output')}${port.state === 'disconnected' ? ' (disconnected)' : ''}</option>`).join('')}</select>` : ''}<p class="settings-note midi-status" role="status">${status}</p>`;
   const select = container.querySelector('#midiPort');
-  if (select) select.addEventListener('change', () => { localStorage.setItem(STORAGE.midiPort, select.value); selectMidiOutput(); });
+  if (select) select.addEventListener('change', () => { localStorage.setItem(STORAGE.midiPort, select.value); selectMidiOutput(); renderMidiSettings(); });
 }
 
 /** Reconnect a previously authorized MIDI output after a page refresh without prompting first-time users. */
@@ -364,6 +385,7 @@ async function deletePlaylist() {
   try {
     await apiPost({ action: 'deletePlaylist', name: state.playlistOriginalName });
     state.data.playlists = state.data.playlists.filter((item) => item.playlist !== state.playlistOriginalName);
+    if (localStorage.getItem(STORAGE.lastPlayPlaylist) === state.playlistOriginalName) localStorage.removeItem(STORAGE.lastPlayPlaylist);
     state.playlistName = null; state.playlistOriginalName = null; state.playlistItems = []; saveData(); render();
   } catch (error) { showToast(error.message || 'Could not delete the playlist.'); }
 }
@@ -371,7 +393,10 @@ async function deletePlaylist() {
 /** Render the offline playlist picker that leads into distraction-free play mode. */
 function renderPlayPicker() {
   const names = playlistNames();
-  app.innerHTML = `${tabs()}<section class="view-header"><h2>Play</h2></section>${names.length ? `<section class="card form-card"><label for="playPicker">Choose a playlist</label><select id="playPicker">${names.map((name) => `<option>${escapeHtml(name)}</option>`).join('')}</select><div class="actions"><button id="startPlay" class="primary">Start play mode</button></div></section>` : '<p class="empty">Save a playlist before entering play mode.</p>'}`;
+  const remembered = localStorage.getItem(STORAGE.lastPlayPlaylist);
+  const selected = names.includes(remembered) ? remembered : names[0];
+  if (remembered && remembered !== selected) localStorage.removeItem(STORAGE.lastPlayPlaylist);
+  app.innerHTML = `${tabs()}<section class="view-header"><h2>Play</h2></section>${names.length ? `<section class="card form-card"><label for="playPicker">Choose a playlist</label><select id="playPicker">${names.map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select><div class="actions"><button id="startPlay" class="primary">Start play mode</button></div></section>` : '<p class="empty">Save a playlist before entering play mode.</p>'}`;
   bindTabs();
   const start = app.querySelector('#startPlay');
   if (start) start.addEventListener('click', () => startPlay(app.querySelector('#playPicker').value));
@@ -381,19 +406,58 @@ function renderPlayPicker() {
 async function startPlay(name) {
   const items = itemsForPlaylist(name);
   if (!items.length) { showToast('That playlist is empty.'); return; }
+  localStorage.setItem(STORAGE.lastPlayPlaylist, name);
   state.play = { name, items, index: 0 };
   await requestWakeLock();
   render();
 }
 
-/** Render the fullscreen stage display and navigation zones. */
+/** Return a concise, title-first label for a stage item. */
+function playItemLabel(item) {
+  if (!item) return '';
+  if (item.type === 'heading') return String(item.ref || 'Set heading');
+  const song = songById(item.ref);
+  return song ? songDisplayName(song) : `Missing song #${item.ref}`;
+}
+
+/** Find the next actual song, deliberately stepping over structural set headings. */
+function adjacentSongIndex(start, direction) {
+  if (!state.play) return -1;
+  for (let index = start + direction; index >= 0 && index < state.play.items.length; index += direction) {
+    const item = state.play.items[index];
+    if (item.type === 'song' && songById(item.ref)) return index;
+  }
+  return -1;
+}
+
+/** Show the most recent heading as context even when navigation is song-to-song. */
+function currentSetHeading() {
+  if (!state.play) return '';
+  for (let index = state.play.index; index >= 0; index -= 1) {
+    if (state.play.items[index].type === 'heading') return String(state.play.items[index].ref || '');
+  }
+  return '';
+}
+
+/** Keep the full set visible whenever the viewport has room for a side panel. */
+function playSetlistMarkup() {
+  return `<aside class="play-setlist" aria-label="Set list"><div class="play-setlist-title"><span>Set list</span><span>${escapeHtml(state.play.name)}</span></div><ol>${state.play.items.map((item, index) => item.type === 'heading'
+    ? `<li class="play-setlist-heading">${escapeHtml(item.ref)}</li>`
+    : `<li><button class="${index === state.play.index ? 'active' : ''}" data-play-index="${index}" ${songById(item.ref) ? '' : 'disabled'}><span>${index + 1}</span><span class="play-setlist-song">${escapeHtml(playItemLabel(item))}</span></button></li>`).join('')}</ol></aside>`;
+}
+
+/** Render the fullscreen stage display, plus song cues and a set list on roomy viewports. */
 function renderPlayMode() {
   const item = state.play.items[state.play.index];
   const song = item.type === 'song' ? songById(item.ref) : null;
-  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song || state.metronomeRunning ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2 class="play-title">${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${state.play.index === 0 ? 'disabled' : ''}>← Previous</button><button id="next" ${state.play.index === state.play.items.length - 1 ? 'disabled' : ''}>Next →</button></div></div></section>`;
+  const previous = adjacentSongIndex(state.play.index, -1);
+  const next = adjacentSongIndex(state.play.index, 1);
+  const setHeading = currentSetHeading();
+  app.innerHTML = `<section class="play-shell"><div class="play-top"><button id="exitPlay" class="ghost">← Exit</button><div class="play-context"><span class="play-progress">${state.play.index + 1} / ${state.play.items.length}</span><span>${escapeHtml(setHeading || state.play.name)}</span></div><div class="play-controls">${song && state.midiOutput ? `<button id="toggleAudio" class="${state.audioMuted ? 'audio-muted' : ''}">${state.audioMuted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}<button id="toggleMetro" class="${state.metronomeRunning ? 'metro-playing' : ''}" ${song || state.metronomeRunning ? '' : 'hidden'}>${state.metronomeRunning ? 'Stop click' : 'Play click'}</button></div></div><div class="play-stage">${playSetlistMarkup()}<div class="play-song" id="playContent">${song ? (state.editingSongId === String(song.id) ? playSongEditor(song) : `<button class="play-edit ghost" id="playEdit">Edit song</button><h2 class="play-title">${escapeHtml(song.title)}</h2><div class="play-bpm">${escapeHtml(song.bpm)}</div><div class="play-bpm-label">BPM</div><div class="play-artist">${escapeHtml(song.artist)}</div>${song.notes ? `<p class="play-notes">${escapeHtml(song.notes)}</p>` : ''}`) : `<div class="play-heading">${escapeHtml(item.ref)}</div>`}</div></div><div class="play-bottom"><div class="tap-nav"><button id="previous" ${previous < 0 ? 'disabled' : ''}><span>← Previous</span><strong>${previous >= 0 ? escapeHtml(playItemLabel(state.play.items[previous])) : 'Start of set'}</strong></button><button id="next" ${next < 0 ? 'disabled' : ''}><span>Next →</span><strong>${next >= 0 ? escapeHtml(playItemLabel(state.play.items[next])) : 'End of set'}</strong></button></div></div></section>`;
   app.querySelector('#exitPlay').addEventListener('click', exitPlay);
   app.querySelector('#previous').addEventListener('click', () => movePlay(-1));
   app.querySelector('#next').addEventListener('click', () => movePlay(1));
+  app.querySelectorAll('[data-play-index]').forEach((button) => button.addEventListener('click', () => selectPlayIndex(Number(button.dataset.playIndex))));
   const metro = app.querySelector('#toggleMetro'); if (metro) metro.addEventListener('click', toggleMetronome);
   const audio = app.querySelector('#toggleAudio'); if (audio) audio.addEventListener('click', toggleAudioMute);
   const edit = app.querySelector('#playEdit'); if (edit) edit.addEventListener('click', () => { state.editingSongId = String(song.id); renderPlayMode(); });
@@ -427,13 +491,23 @@ function bindPlaySongEditor() {
   });
 }
 
-/** Shift a play position while preserving whether the click was already running. */
+/** Shift to the adjacent song; headings remain visible in the set list instead of consuming a tap. */
 function movePlay(direction) {
-  const next = state.play.index + direction;
-  if (next < 0 || next >= state.play.items.length) return;
+  const next = adjacentSongIndex(state.play.index, direction);
+  if (next < 0) return;
+  selectPlayIndex(next);
+}
+
+/** Open an explicit set-list selection, resetting a running click cleanly for its BPM. */
+function selectPlayIndex(next) {
+  if (!state.play || next < 0 || next >= state.play.items.length || next === state.play.index) return;
   state.editingSongId = null;
   state.play.index = next;
-  syncMetronomeOutput();
+  try {
+    syncMetronomeOutput({ reset: true });
+  } catch (_) {
+    showToast('The click could not restart; navigation continued.');
+  }
   renderPlayMode();
 }
 
@@ -497,9 +571,9 @@ function toggleAudioMute() {
 
 /** Stop future scheduling and tell hardware that its transport is no longer running. */
 function stopMetronome() {
-  if (!state.metronomeRunning) return;
+  if (!state.metronomeRunning && !state.metronomeOutputActive) return;
   state.metronomeRunning = false;
-  muteMetronomeOutput();
+  muteMetronomeOutput({ forceMidiStop: true });
 }
 
 /** A song needs a positive numeric BPM before it can drive audio or MIDI clock. */
@@ -509,40 +583,104 @@ function hasCurrentPlayTempo() {
   return Number.isFinite(bpm) && bpm > 0;
 }
 
+/** Keep a flaky MIDI port from interrupting the play screen or local audio click. */
+function handleMidiOutputError(output) {
+  if (state.midiOutput !== output) return;
+  state.midiOutput = null;
+  showToast('MIDI output disconnected; continuing with the audio click.');
+}
+
+/** Clear only the selected port's queued messages, without letting a port error break navigation. */
+function clearMidiOutput(output = state.midiOutput) {
+  if (!output) return false;
+  try {
+    output.clear();
+    return true;
+  } catch (_) {
+    handleMidiOutputError(output);
+    return false;
+  }
+}
+
+/** Send a MIDI message safely; a disconnected port falls back to the local click. */
+function sendMidiMessage(message, performanceWhen, output = state.midiOutput) {
+  if (!output) return false;
+  try {
+    if (performanceWhen == null) output.send(message);
+    else output.send(message, performanceWhen);
+    return true;
+  } catch (_) {
+    handleMidiOutputError(output);
+    return false;
+  }
+}
+
+/** Cancel queued audio/MIDI events and invalidate any scheduler callback already in flight. */
+function clearScheduledOutput() {
+  state.schedulerGeneration += 1;
+  clearTimeout(state.schedulerTimer);
+  state.schedulerTimer = null;
+  state.scheduledSources.forEach((source) => { try { source.stop(state.audio.currentTime); } catch (_) {} });
+  state.scheduledSources = [];
+  clearMidiOutput();
+}
+
+/** Send a second, guarded Stop so receivers cannot resume from an already queued clock tick. */
+function sendMidiStop() {
+  const output = state.midiOutput;
+  if (!output) return;
+  clearTimeout(state.midiStopTimer);
+  clearMidiOutput(output);
+  sendMidiMessage([0xFC], undefined, output);
+  const generation = state.schedulerGeneration;
+  state.midiStopTimer = setTimeout(() => {
+    if (!state.metronomeRunning && state.midiOutput === output && state.schedulerGeneration === generation) {
+      clearMidiOutput(output);
+      sendMidiMessage([0xFC], undefined, output);
+    }
+    state.midiStopTimer = null;
+  }, 60);
+}
+
 /** Start scheduling from a fresh beat when the active item has a usable tempo. */
-function startMetronomeOutput() {
+function startMetronomeOutput({ sendMidiStart = true } = {}) {
   if (!state.metronomeRunning || !state.audio || !hasCurrentPlayTempo() || state.metronomeOutputActive) return;
+  clearTimeout(state.midiStopTimer);
+  state.midiStopTimer = null;
   state.nextClickAt = state.audio.currentTime + 0.04;
   // MIDI timestamps use the performance clock, independently of Web Audio's render-block clock.
   state.nextMidiAt = performance.now() + 40;
   state.metronomeOutputActive = true;
-  if (state.midiOutput) state.midiOutput.send([0xFA]);
-  scheduler();
+  if (sendMidiStart) sendMidiMessage([0xFA]);
+  const generation = ++state.schedulerGeneration;
+  scheduler(generation);
 }
 
 /** Silence a tempo-less item while keeping the click armed to resume on the next playable song. */
-function muteMetronomeOutput() {
+function muteMetronomeOutput({ forceMidiStop = false } = {}) {
+  if (!state.metronomeOutputActive && !forceMidiStop) return;
+  state.metronomeOutputActive = false;
+  // Cancel the small look-ahead queue too, so changing to a heading never leaks one last click.
+  clearScheduledOutput();
+  sendMidiStop();
+}
+
+/** Restart the local schedule at a song boundary without stopping external MIDI transport. */
+function resetMetronomeOutput() {
   if (!state.metronomeOutputActive) return;
   state.metronomeOutputActive = false;
-  clearTimeout(state.schedulerTimer);
-  state.schedulerTimer = null;
-  // Cancel the small look-ahead queue too, so changing to a heading never leaks one last click.
-  state.scheduledSources.forEach((source) => { try { source.stop(state.audio.currentTime); } catch (_) {} });
-  state.scheduledSources = [];
-  if (state.midiOutput) {
-    // Drop timestamped clock ticks that have not left the browser before stopping transport.
-    state.midiOutput.clear();
-    state.midiOutput.send([0xFC]);
-  }
+  clearScheduledOutput();
 }
 
 /** Keep the click armed across navigation, while only emitting output for tempo-bearing songs. */
-function syncMetronomeOutput() {
+function syncMetronomeOutput({ reset = false } = {}) {
   if (!state.metronomeRunning) return;
-  if (hasCurrentPlayTempo()) startMetronomeOutput();
-  else muteMetronomeOutput();
+  if (hasCurrentPlayTempo()) {
+    const wasActive = state.metronomeOutputActive;
+    if (reset) resetMetronomeOutput();
+    startMetronomeOutput({ sendMidiStart: !wasActive });
+  } else muteMetronomeOutput();
 }
-
 /** Return the live BPM so an in-place edit takes effect on the next scheduled beat. */
 function currentPlayBpm() {
   const item = state.play && state.play.items[state.play.index];
@@ -553,8 +691,8 @@ function currentPlayBpm() {
  * Look-ahead scheduler: timer callbacks only queue future Web Audio/MIDI events.
  * They never make sound themselves, avoiding timer jitter in the audible clock.
  */
-function scheduler() {
-  if (!state.metronomeRunning || !state.metronomeOutputActive || !state.audio) return;
+function scheduler(generation) {
+  if (generation !== state.schedulerGeneration || !state.metronomeRunning || !state.metronomeOutputActive || !state.audio) return;
   const audioHorizon = state.audio.currentTime + 0.16;
   while (state.nextClickAt < audioHorizon) {
     scheduleClick(state.nextClickAt);
@@ -565,7 +703,7 @@ function scheduler() {
     scheduleMidiClock(state.nextMidiAt);
     state.nextMidiAt += 60000 / currentPlayBpm() / 24;
   }
-  state.schedulerTimer = setTimeout(scheduler, 25);
+  state.schedulerTimer = setTimeout(() => scheduler(generation), 25);
 }
 
 /** Synthesize a short, bright two-oscillator click at an exact AudioContext time. */
@@ -590,8 +728,7 @@ function scheduleClick(when) {
 
 /** Send MIDI clock directly on its native performance-time timeline. */
 function scheduleMidiClock(performanceWhen) {
-  if (!state.midiOutput) return;
-  state.midiOutput.send([0xF8], performanceWhen);
+  sendMidiMessage([0xF8], performanceWhen);
 }
 
 /** Require a configured endpoint for all remote activity, keeping the repository URL-free. */
