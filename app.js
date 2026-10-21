@@ -315,7 +315,7 @@ function renderPlaylists() {
   const names = playlistNames();
   if (!state.playlistName && names.length) openPlaylist(names[0]);
   const songCount = state.playlistItems.filter((item) => item.type === 'song').length;
-  app.innerHTML = `${tabs()}<section class="view-header"><h2>Playlists${state.playlistName ? ` <span class="song-count">${songCountLabel(songCount)}</span>` : ''}</h2><button id="newPlaylist" class="primary">New</button></section>
+  app.innerHTML = `${tabs()}<section class="view-header"><h2>Playlists${state.playlistName ? ` <span class="song-count">${songCountLabel(songCount)}</span>` : ''}</h2><div class="playlist-header-actions">${state.playlistName ? '<button id="exportPlaylist">Export PDF</button>' : ''}<button id="newPlaylist" class="primary">New</button></div></section>
     ${names.length ? `<label class="muted" for="playlistSelect">Playlist</label><select id="playlistSelect">${names.map((name) => `<option ${name === state.playlistName ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select>` : ''}
     ${state.playlistName ? playlistEditorMarkup() : '<p class="empty">Create a playlist, then add songs and set headings.</p>'}`;
   bindTabs();
@@ -326,6 +326,8 @@ function renderPlaylists() {
   const picker = app.querySelector('#playlistSelect');
   if (picker) picker.addEventListener('change', () => { openPlaylist(picker.value); render(); });
   bindPlaylistEditor();
+  const exportButton = app.querySelector('#exportPlaylist');
+  if (exportButton) exportButton.addEventListener('click', exportPlaylistPdf);
 }
 
 /** Load an existing playlist into an isolated draft, so cancel/re-renders never mutate cached source rows. */
@@ -339,7 +341,11 @@ function openPlaylist(name) {
 function playlistEditorMarkup() {
   const songOptions = titledSongs().slice().sort(compareSongsByTitle).map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(songDisplayName(song))}</option>`).join('');
   return `<section class="card form-card" style="margin-top:12px"><label for="playlistName">Name</label><input id="playlistName" value="${escapeHtml(state.playlistName)}"><label for="addSong">Add a song</label><div class="add-grid"><select id="addSong">${songOptions || '<option>No songs in library</option>'}</select><button id="addSongButton">Add</button></div><label for="headingText">Add a heading</label><div class="add-grid"><input id="headingText" placeholder="e.g. Set 2"><button id="addHeading">Add</button></div>
-    <section id="playlistItems">${state.playlistItems.length ? state.playlistItems.map((item, index) => item.type === 'heading' ? `<div class="playlist-item heading"><span>${escapeHtml(item.ref)}</span>${itemControls(index)}</div>` : `<div class="playlist-item"><strong>${escapeHtml(songDisplayName(songById(item.ref)) || `Missing song #${item.ref}`)}</strong>${itemControls(index)}</div>`).join('') : '<p class="empty">This playlist is empty.</p>'}</section>
+    <section id="playlistItems">${state.playlistItems.length ? state.playlistItems.map((item, index) => {
+      if (item.type === 'heading') return `<div class="playlist-item heading"><span>${escapeHtml(item.ref)}</span>${itemControls(index)}</div>`;
+      const song = songById(item.ref);
+      return `<div class="playlist-item"><span class="playlist-song-details"><strong>${escapeHtml(song?.title || `Missing song #${item.ref}`)}</strong>${song?.artist ? `<span class="playlist-artist">${escapeHtml(song.artist)}</span>` : ''}</span><span class="playlist-song-end"><span class="playlist-bpm" aria-label="${escapeHtml(song?.bpm || 'Unknown')} BPM">${escapeHtml(song?.bpm || '—')} <small>BPM</small></span>${itemControls(index)}</span></div>`;
+    }).join('') : '<p class="empty">This playlist is empty.</p>'}</section>
     <div class="editor-actions"><button id="savePlaylist" class="primary">Save playlist</button>${state.playlistOriginalName ? '<button id="deletePlaylist" class="danger">Delete playlist</button>' : ''}</div></section>`;
 }
 
@@ -363,6 +369,66 @@ function bindPlaylistEditor() {
   app.querySelector('#savePlaylist').addEventListener('click', savePlaylist);
   const remove = app.querySelector('#deletePlaylist');
   if (remove) remove.addEventListener('click', deletePlaylist);
+}
+
+/** Split the visible draft at headings; each section starts on a fresh PDF page. */
+function playlistPrintSections(name) {
+  const sections = [];
+  let current = { heading: name, songs: [] };
+  state.playlistItems.forEach((item) => {
+    if (item.type === 'heading') {
+      if (current.songs.length) sections.push(current);
+      current = { heading: String(item.ref), songs: [] };
+    } else {
+      const song = songById(item.ref);
+      current.songs.push({ title: song?.title || `Missing song #${item.ref}`, bpm: song?.bpm || '—' });
+    }
+  });
+  sections.push(current);
+  return sections;
+}
+
+/** Find the largest single-line type that fits both the page width and row count. */
+function printSongSize(songs, context) {
+  const width = 702; // 185.9 mm of Letter content in CSS pixels.
+  const height = 860; // Space below the page heading, in CSS pixels.
+  for (let size = 64; size >= 1; size--) {
+    if (songs.length * size * 1.45 > height) continue;
+    context.font = `700 ${size}px Arial`;
+    if (songs.every((song) => context.measureText(String(song.title)).width + context.measureText(`${song.bpm} BPM`).width + 20 <= width)) return size;
+  }
+  context.font = '700 1px Arial';
+  const widest = Math.max(1, ...songs.map((song) => context.measureText(String(song.title)).width + context.measureText(`${song.bpm} BPM`).width + 20));
+  return Math.min(1, width / widest);
+}
+
+/** Open the browser's PDF print flow with one or more fitted pages per section. */
+function exportPlaylistPdf() {
+  const name = app.querySelector('#playlistName').value.trim() || state.playlistName;
+  const sections = playlistPrintSections(name);
+  const context = document.createElement('canvas').getContext('2d');
+  const pages = sections.flatMap((section) => {
+    const chunks = [];
+    // Cap each page so dense sections stay legible; the next chunk repeats its section heading.
+    for (let i = 0; i < section.songs.length; i += 25) chunks.push(section.songs.slice(i, i + 25));
+    if (!chunks.length) chunks.push([]);
+    return chunks.map((songs, index) => {
+      const size = printSongSize(songs, context);
+      const heading = index ? `${section.heading} (continued)` : section.heading;
+      context.font = '700 42px Arial';
+      const headingWidth = context.measureText(heading).width;
+      const headingSize = Math.min(42, 702 * 42 / Math.max(headingWidth, 1));
+      return `<section class="pdf-page" style="--song-size:${size}px;--heading-size:${headingSize}px"><h2>${escapeHtml(heading)}</h2><div class="pdf-songs">${songs.map((song) => `<div class="pdf-song"><span>${escapeHtml(song.title)}</span><strong>${escapeHtml(song.bpm)} BPM</strong></div>`).join('')}</div></section>`;
+    });
+  });
+  let printPages = document.querySelector('#printPages');
+  if (!printPages) {
+    printPages = document.createElement('div');
+    printPages.id = 'printPages';
+    document.body.append(printPages);
+  }
+  printPages.innerHTML = pages.join('');
+  window.print();
 }
 
 /** Save a whole playlist atomically on the server, updating cache only after that succeeds. */

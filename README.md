@@ -10,7 +10,8 @@ truth and has no dependencies, build step, or account login in the app.
 - Offline song and playlist cache for reliable gig-time use
 - Big, dark, distraction-free play mode with Wake Lock support
 - BPM and notes editing with deferred sync when the device reconnects
-- Playlist headings, song ordering, and whole-playlist saves
+- Playlist headings, song ordering, BPM at a glance, and whole-playlist saves
+- Letter-size PDF print export with large song titles and BPM; each heading starts a new page
 - Web Audio look-ahead metronome scheduler
 - MIDI clock output when the browser exposes a Web MIDI output port
 
